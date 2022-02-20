@@ -3,21 +3,35 @@
 import sys
 import ipaddress
 import argparse
-from pysnmp import hlapi
-from tabulate import tabulate
-from colorama import init, Fore, Back, Style
+try:
+    from pysnmp import hlapi
+except ImportError:
+    raise ImportError("Please install \"pysnmp\" module: pip install pysnmp")
+
+try:
+    from tabulate import tabulate
+except ImportError:
+    raise ImportError("Please install \"tabulate\" module: pip install tabulate")
+try:
+    from colorama import init, Fore, Back, Style
+except ImportError:
+    raise ImportError("Please install \"colorama\" module: pip install colorama")
 import difflib
 
-import paramiko
+try:
+    import paramiko    
+except ImportError:
+    raise ImportError("Please install \"paramiko\" module: pip install paramiko")
 import time
 import socket
+import getpass
 
 def replace_all(text, dic):
     for i, j in dic.items():
         text = text.replace(i, j)
     return text
 
-def colorize_difs(s1,s2,color=Fore.BLUE, skip_threshold=30):
+def colorize_difs(s1,s2,color=Fore.MAGENTA, skip_threshold=30):
     if len(s2)==0: return s2
     style= Style.RESET_ALL
     result=''
@@ -50,7 +64,7 @@ def snmp_get(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), con
     handler = hlapi.getCmd(
         engine,
         credentials,
-        hlapi.UdpTransportTarget((target, port),timeout=.5, retries=0),
+        hlapi.UdpTransportTarget((target, port),timeout=1, retries=0),
         context,
         *construct_object_types(oids)
     )
@@ -129,35 +143,25 @@ def snmp_walk(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), co
     return fetch_auto(handler)
 
 
-#https://pyneng.readthedocs.io/ru/latest/book/18_ssh_telnet/paramiko.html
-def send_show_command(ip,username,password,enable,commands,max_bytes=60000,short_pause=0.5,long_pause=5):
+def cisco_ssh_command_wr(ip,username,password,commands,enable='',max_bytes=60000,short_pause=0.5,long_pause=1,timeout=1):
     cl = paramiko.SSHClient()
     cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    cl.connect(hostname=ip,username=username,password=password,look_for_keys=False,allow_agent=False)
+    cl.connect(hostname=ip,username=username,password=password,look_for_keys=False,allow_agent=False,timeout=timeout)
     with cl.invoke_shell() as ssh:
-        ssh.send("enable\n")
-        ssh.send(f"{enable}\n")
-        time.sleep(short_pause)
-        ssh.send("terminal length 0\n")
-        time.sleep(short_pause)
-        ssh.recv(max_bytes)
-
-        result = {}
+        if enable!='':
+            ssh.send("enable\n")
+            ssh.send(f"{enable}\n")
+            time.sleep(short_pause)
+        commands = ['conf t']+commands+['end']
+        #commands = ['terminal length 0','conf t']+commands+['end']
         for command in commands:
-            ssh.send(f"{command}\n")
-            ssh.settimeout(long_pause)
-
-            output = ""
-            while True:
-                try:
-                    part = ssh.recv(max_bytes).decode("utf-8")
-                    output += part
-                    time.sleep(short_pause)
-                except socket.timeout:
-                    break
-            result[command] = output
-
-        return result
+            ssh.send(command+'\n')
+            time.sleep(short_pause)
+        
+        ssh.send('wr\n')
+        time.sleep(long_pause)
+        
+        return ssh.recv(max_bytes).decode("utf-8")
 
 
 
@@ -178,6 +182,8 @@ short_names ={'.si.rt.ru':''}
 
 #host ='10.142.126.4'
 #comm='[htyfDfv'
+user_name =""
+password =''
 
 def get_table(host,comm):
 #    print (host)
@@ -223,7 +229,8 @@ def get_name(host, comm):
     name=snmp_get(host, [sysName], hlapi.CommunityData(comm))[sysName]
     return name
 
-def main(host,comm,colorize):
+
+def main(host,comm,colorize,interactive):
     try:
         name = get_name(host, comm)
         tbl= get_table(host,comm)
@@ -233,14 +240,38 @@ def main(host,comm,colorize):
 
     if tbl==[]:
         return
-    if colorize:
-        for i in range(len(tbl)):
-            tbl[i][4]= colorize_difs(tbl[i][3],tbl[i][4])
+        
 
-    print('\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
-    print(tabulate(tbl,['Local Port','Devace Name','Remote Port','Local Description','Expected']))
-    print ('\n')
+    if interactive:
+        interact(host, colorize, name, tbl)
+    else:
+        print('\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
+        if colorize:
+            for i in range(len(tbl)):
+                tbl[i][4]= colorize_difs(tbl[i][3],tbl[i][4])
+        print(tabulate(tbl,['Local Port','Devace Name','Remote Port','Local Description','Expected']))
+        print ('\n')
 
+
+
+def interact(host, colorize, name, tbl):
+    global user_name
+    global password
+
+    if user_name=='':
+        print('Interactive mode. You`ll be asked about action with each found mismatch in the description separately.')
+        user_name=input('Enter your credentials:\nSSH username:')
+        password=getpass.getpass(prompt='SSH password:')
+    print('\n\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
+    for row in tbl:
+        new_descr= row[4]
+        if colorize:
+           row[4]= colorize_difs(row[3],row[4])
+        print(tabulate([row],['Local Port','Devace Name','Remote Port','Local Description','Expected']))
+        print(f'Change this entry to {new_descr} ?')
+        if input('(yes/no) no').lower()=='yes':
+            cisco_ssh_command_wr(host,)
+          
 
 
 
@@ -256,7 +287,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", action='store_true', help="Interactive config mode")
     args = parser.parse_args()
 
-    #print(args)
+   #print(args)
     if args.b :init(autoreset=True)
     hosts=[]
     if args.hosts!=None:
@@ -268,5 +299,6 @@ if __name__ == "__main__":
         hosts=list(net.hosts())
 
     for h in hosts:
-        main(str(h),args.community,args.b)
+        main(str(h),args.community,args.b,args.i)
+    print ('All done..')
 
