@@ -51,12 +51,16 @@ def colorize_difs(s1,s2,color=Fore.MAGENTA, skip_threshold=30):
 
 def ip_range(range_str):
     ips= range_str.split('-')
-    ip1=int(ipaddress.IPv4Address(ips[0]))
-    ip2=int(ipaddress.IPv4Address(ips[1]))
+    s_ip1,s_ip2=ips[0],ips[-1]
+    if not '.' in s_ip2:
+        s_ip2='.'.join(s_ip1.split('.')[:3]+[s_ip2])
+
+    ip1=int(ipaddress.IPv4Address(s_ip1))
+    ip2=int(ipaddress.IPv4Address(s_ip2))
+
     if ip1>ip2:
         ip1,ip2=ip2,ip1
     return [str(ipaddress.IPv4Address(i)) for i in range(ip1,ip2+1)]
-
 
 
 
@@ -143,7 +147,7 @@ def snmp_walk(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), co
     return fetch_auto(handler)
 
 
-def cisco_ssh_command_wr(ip,username,password,commands,enable='',max_bytes=60000,short_pause=0.5,long_pause=1,timeout=1):
+def cisco_ssh_command_wr(ip,username,password,commands,enable='' ,max_bytes=60000,short_pause=0.5,long_pause=1,timeout=1):
     cl = paramiko.SSHClient()
     cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     cl.connect(hostname=ip,username=username,password=password,look_for_keys=False,allow_agent=False,timeout=timeout)
@@ -269,9 +273,15 @@ def interact(host, colorize, name, tbl):
            row[4]= colorize_difs(row[3],row[4])
         print(tabulate([row],['Local Port','Devace Name','Remote Port','Local Description','Expected']))
         print(f'Change this entry to {new_descr} ?')
-        if input('(yes/no) no').lower()=='yes':
-            cisco_ssh_command_wr(host,)
-          
+        if input('(y/n) n ').lower()=='y':
+            try:
+                output=cisco_ssh_command_wr(host,user_name,password,[f'int {row[0]}',f'descr {new_descr}'])
+                if not 'Invalid input' in output:
+                    print ('successfully done')
+                else:
+                    print('an error has occurred:\n' +output)
+            except Exception as e:
+                print(e)
 
 
 
@@ -279,13 +289,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Check  device via SNMP if  interface descriptions matches  CDP cache.")
     parser.add_argument("-c", dest="community", default='public', help="SNMP community.")
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("-r",metavar='Range', dest="range", help="IP range.  192.168.1.1-192.168.2.1")
-    group.add_argument("-n",metavar='Network', dest="network", help="IP network.  192.168.1.0/24")
-    group.add_argument('-a',metavar='Host', dest="hosts",nargs='*', help='Host or hosts lst. 192.168.1.0 192.168.1.2')
+    group.add_argument("-r",metavar='Range', dest="range", help="IP range. E. 192.168.1.1-192.168.2.1 or 192.168.1.1-5")
+    group.add_argument("-n",metavar='Network', dest="network", help="IP network. E. 192.168.1.0/24")
+    group.add_argument('-a',metavar='Host', dest="hosts",nargs='*', help='Host or hosts lst. E. 192.168.1.0 192.168.1.2')
     #parser.add_argument('hosts',metavar='Host', nargs='*', help='a host or list of hosts')
     parser.add_argument("-b", action='store_false', help="Do not mark difference")
     parser.add_argument("-i", action='store_true', help="Interactive config mode")
     args = parser.parse_args()
+    #args = parser.parse_args('-c [htyfDfv -a 10.142.127.143 -i'.split())
 
    #print(args)
     if args.b :init(autoreset=True)
