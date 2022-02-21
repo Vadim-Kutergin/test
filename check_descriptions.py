@@ -267,6 +267,7 @@ def interact(host, colorize, name, tbl):
         user_name=input('Enter your credentials:\nSSH username:')
         password=getpass.getpass(prompt='SSH password:')
     print('\n\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
+    collect_commands=[]
     for row in tbl:
         new_descr= row[4]
         if colorize:
@@ -274,14 +275,18 @@ def interact(host, colorize, name, tbl):
         print(tabulate([row],['Local Port','Devace Name','Remote Port','Local Description','Expected']))
         print(f'Change this entry to {new_descr} ?')
         if input('(y/n) n ').lower()=='y':
-            try:
-                output=cisco_ssh_command_wr(host,user_name,password,[f'int {row[0]}',f'descr {new_descr}'])
-                if not 'Invalid input' in output:
-                    print ('successfully done')
-                else:
-                    print('an error has occurred:\n' +output)
-            except Exception as e:
-                print(e)
+            collect_commands.extend([f'int {row[0]}',f'descr {new_descr}'])
+  
+    if collect_commands !=[]:
+        print('Issue SSH session..')    
+        try:
+            output=cisco_ssh_command_wr(host,user_name,password,collect_commands)
+            if not 'Invalid input' in output:
+                print ('successfully done')
+            else:
+                print('an error has occurred:\n' +output)
+        except Exception as e:
+            print(e)
 
 
 
@@ -295,8 +300,8 @@ if __name__ == "__main__":
     #parser.add_argument('hosts',metavar='Host', nargs='*', help='a host or list of hosts')
     parser.add_argument("-b", action='store_false', help="Do not mark difference")
     parser.add_argument("-i", action='store_true', help="Interactive config mode")
-    args = parser.parse_args()
-    #args = parser.parse_args('-c [htyfDfv -a 10.142.127.143 -i'.split())
+    #args = parser.parse_args()
+    args = parser.parse_args('-c [htyfDfv -a 10.142.127.241 -i'.split())
 
    #print(args)
     if args.b :init(autoreset=True)
