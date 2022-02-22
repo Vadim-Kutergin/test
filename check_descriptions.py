@@ -147,7 +147,7 @@ def snmp_walk(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), co
     return fetch_auto(handler)
 
 
-def cisco_ssh_command_wr(ip,username,password,commands,enable='' ,max_bytes=60000,short_pause=0.5,long_pause=1,timeout=1):
+def cisco_ssh_command_wr(ip,username,password,commands,enable='' ,max_bytes=60000,short_pause=0.5,long_pause=1,timeout=3):
     cl = paramiko.SSHClient()
     cl.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     cl.connect(hostname=ip,username=username,password=password,look_for_keys=False,allow_agent=False,timeout=timeout)
@@ -300,8 +300,8 @@ if __name__ == "__main__":
     #parser.add_argument('hosts',metavar='Host', nargs='*', help='a host or list of hosts')
     parser.add_argument("-b", action='store_false', help="Do not mark difference")
     parser.add_argument("-i", action='store_true', help="Interactive config mode")
-    #args = parser.parse_args()
-    args = parser.parse_args('-c [htyfDfv -a 10.142.127.241 -i'.split())
+    args = parser.parse_args()
+    #args = parser.parse_args('-c [htyfDfv -a 10.142.127.241 -i'.split())
 
    #print(args)
     if args.b :init(autoreset=True)
@@ -317,4 +317,3 @@ if __name__ == "__main__":
     for h in hosts:
         main(str(h),args.community,args.b,args.i)
     print ('All done..')
-
