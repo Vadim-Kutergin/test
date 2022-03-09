@@ -26,6 +26,15 @@ import time
 import socket
 import getpass
 
+def read_file(filename):
+    hosts=[]
+    with open(filename,"r") as f:
+        for line in f:
+            line= line.rstrip('\n')
+            hosts.append(line.split(';')[0])
+        f.close()
+    return hosts
+
 def replace_all(text, dic):
     for i, j in dic.items():
         text = text.replace(i, j)
@@ -64,11 +73,11 @@ def ip_range(range_str):
 
 
 
-def snmp_get(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), context=hlapi.ContextData()):
+def snmp_get(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), context=hlapi.ContextData(),timeout=2,retries=0):
     handler = hlapi.getCmd(
         engine,
         credentials,
-        hlapi.UdpTransportTarget((target, port),timeout=1, retries=0),
+        hlapi.UdpTransportTarget((target, port),timeout, retries=0),
         context,
         *construct_object_types(oids)
     )
@@ -122,11 +131,11 @@ def cast(value):
     return value
 
 def snmp_get_bulk(target, oids, credentials, count, start_from=0, port=161,
-             engine=hlapi.SnmpEngine(), context=hlapi.ContextData()):
+             engine=hlapi.SnmpEngine(), context=hlapi.ContextData(),timeout=2,retries=0):
     handler = hlapi.bulkCmd(
         engine,
         credentials,
-        hlapi.UdpTransportTarget((target, port)),
+        hlapi.UdpTransportTarget((target, port),timeout,retries),
         context,
         start_from, count,
         *construct_object_types(oids)
@@ -134,15 +143,15 @@ def snmp_get_bulk(target, oids, credentials, count, start_from=0, port=161,
     return fetch(handler, count)
 
 def snmp_get_bulk_auto(target, oids, credentials, count_oid, start_from=0, port=161,
-                  engine=hlapi.SnmpEngine(), context=hlapi.ContextData()):
+                  engine=hlapi.SnmpEngine(), context=hlapi.ContextData(),timeout=2,retries=0):
     count = snmp_get(target, [count_oid], credentials, port, engine, context)[count_oid]
-    return snmp_get_bulk(target, oids, credentials, count, start_from, port, engine, context)
+    return snmp_get_bulk(target, oids, credentials, count, start_from, port, engine, context,timeout,retries)
 
 
 
 
-def snmp_walk(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), context=hlapi.ContextData()):
-    handler= hlapi.nextCmd(engine, credentials, hlapi.UdpTransportTarget((target, port)), context,
+def snmp_walk(target, oids, credentials, port=161, engine=hlapi.SnmpEngine(), context=hlapi.ContextData(),timeout=2,retries=0):
+    handler= hlapi.nextCmd(engine, credentials, hlapi.UdpTransportTarget((target, port),timeout,retries), context,
         *construct_object_types(oids),lexicographicMode=False)
     return fetch_auto(handler)
 
@@ -237,23 +246,26 @@ def get_name(host, comm):
 def main(host,comm,colorize,interactive):
     try:
         name = get_name(host, comm)
-        tbl= get_table(host,comm)
+        mismatch_tbl= get_table(host,comm)
     except RuntimeError as err:
         print (f'{host}',err)
         return
 
-    if tbl==[]:
+
+    if mismatch_tbl==[]:
+        if interactive:
+            print (f'checking {name} ({host}).. [Ok]')
         return
         
 
     if interactive:
-        interact(host, colorize, name, tbl)
+        interact(host, colorize, name, mismatch_tbl)
     else:
         print('\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
         if colorize:
-            for i in range(len(tbl)):
-                tbl[i][4]= colorize_difs(tbl[i][3],tbl[i][4])
-        print(tabulate(tbl,['Local Port','Devace Name','Remote Port','Local Description','Expected']))
+            for i in range(len(mismatch_tbl)):
+                mismatch_tbl[i][4]= colorize_difs(mismatch_tbl[i][3],mismatch_tbl[i][4])
+        print(tabulate(mismatch_tbl,['Local Port','Devace Name','Remote Port','Local Description','Expected']))
         print ('\n')
 
 
@@ -263,7 +275,7 @@ def interact(host, colorize, name, tbl):
     global password
 
     if user_name=='':
-        print('Interactive mode. You`ll be asked about action with each found mismatch in the description separately.')
+        print('Entering interactive mode. You`ll be asked about action with each found mismatch separately.')
         user_name=input('Enter your credentials:\nSSH username:')
         password=getpass.getpass(prompt='SSH password:')
     print('\n\nDescripton mismatch found on {0} ({1})'.format(replace_all(name,short_names),host))
@@ -297,6 +309,7 @@ if __name__ == "__main__":
     group.add_argument("-r",metavar='Range', dest="range", help="IP range. E. 192.168.1.1-192.168.2.1 or 192.168.1.1-5")
     group.add_argument("-n",metavar='Network', dest="network", help="IP network. E. 192.168.1.0/24")
     group.add_argument('-a',metavar='Host', dest="hosts",nargs='*', help='Host or hosts lst. E. 192.168.1.0 192.168.1.2')
+    group.add_argument('-f',metavar='File', help='Hosts lst  from file.')
     #parser.add_argument('hosts',metavar='Host', nargs='*', help='a host or list of hosts')
     parser.add_argument("-b", action='store_false', help="Do not mark difference")
     parser.add_argument("-i", action='store_true', help="Interactive config mode")
@@ -310,6 +323,8 @@ if __name__ == "__main__":
         hosts=args.hosts
     elif args.range!=None:
         hosts=ip_range(args.range)
+    elif args.f!=None:
+        hosts=read_file(args.f)
     else:
         net = ipaddress.ip_network(args.network)
         hosts=list(net.hosts())
